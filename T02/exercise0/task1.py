@@ -6,12 +6,6 @@ import math
 import os
 from sys import exit
 
-# Инициализация поддержки ANSI-кодов для Windows
-if os.name == 'nt':
-    import ctypes
-    kernel32 = ctypes.windll.kernel32
-    kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
-
 # Глобальные переменные
 students = []
 examiners = []
@@ -202,7 +196,13 @@ def examiner_process(examiner, student_queue):
             time.sleep(exam_duration)
 
             # Процесс экзамена
-            result = random.choices([True, False], weights=[0.6, 0.4])[0]
+            mood = random.choices(['bad', 'good', 'neutral'], weights=[1/8, 1/4, 5/8])
+            if mood == 'bad':
+                result = True
+            elif mood == 'good':
+                result = False
+            else:
+                result = random.choices([True, False], weights=[0.6, 0.4])[0]
             
             # Обновляем статус студента
             with student_lock:
@@ -249,12 +249,80 @@ def main():
     with print_lock:
         print("\033[J")  # Очистка экрана
         
-        # Выводим итоговые таблицы
-        sorted_students = sorted(students, key=lambda x: x.status != "Сдал")
-        print(draw_table(["Студент", "Статус"], [[s.name, s.status] for s in sorted_students]))
+        # Таблица студентов
+        sorted_students = sorted(
+            students, 
+            key=lambda x: (x.status == "Провалил", x.exam_time or 0)
+        )
+        student_data = [[s.name, s.status] for s in sorted_students]
+        print(draw_table(["Студент", "Статус"], student_data))
         
-        examiner_data = [[e.name, str(e.total), str(e.failed), f"{e.work_time:.2f}"] for e in examiners]
-        print("\n" + draw_table(["Экзаменатор", "Принято", "Завалено", "Время"], examiner_data))
+        # Таблица экзаменаторов
+        examiner_data = [
+            [e.name, str(e.total), str(e.failed), f"{e.work_time:.2f}"] 
+            for e in examiners
+        ]
+        print("\n" + draw_table(
+            ["Экзаменатор", "Всего студентов", "Завалил", "Время работы"],
+            examiner_data
+        ))
+        
+        # Дополнительная информация
+        total_time = time.time() - start_time
+        print(f"\nВремя с момента начала экзамена: {total_time:.2f} сек.")
+        
+        # Лучшие студенты
+        passed = [s for s in students if s.status == "Сдал"]
+        if passed:
+            min_time = min(s.exam_time for s in passed)
+            best_students = [s.name for s in passed if s.exam_time == min_time]
+            print(f"Имена лучших студентов: {', '.join(best_students)}")
+        else:
+            print("Имена лучших студентов: нет")
+        
+        # Лучшие экзаменаторы
+        examiner_stats = []
+        for e in examiners:
+            if e.total == 0:
+                rate = 0.0
+            else:
+                rate = e.failed / e.total
+            examiner_stats.append((e, rate))
+        
+        if examiner_stats:
+            min_rate = min(stats[1] for stats in examiner_stats)
+            best_examiners = [e.name for e, r in examiner_stats if r == min_rate]
+            print(f"Имена лучших экзаменаторов: {', '.join(best_examiners)}")
+        
+        # Отчисленные студенты
+        failed = [s for s in students if s.status == "Провалил"]
+        if failed:
+            failed_sorted = sorted(failed, key=lambda x: x.exam_time)
+            print(f"Имена студентов, которых отчислят: {failed_sorted[0].name}")
+        
+        # Лучшие вопросы
+        question_stats = {q: 0 for q in questions}
+        for s in students:
+            for ans in s.answers:
+                if ans[2]:  # Правильный ответ
+                    question_stats[ans[0]] += 1
+
+        if question_stats:
+        # Фильтруем вопросы с хотя бы одним правильным ответом
+            filtered_stats = {k: v for k, v in question_stats.items() if v > 0}
+    
+            if filtered_stats:
+                max_correct = max(filtered_stats.values())
+                best_questions = [q for q, c in filtered_stats.items() if c == max_correct]
+                print(f"Лучшие вопросы: {', '.join(best_questions)}")
+            else:
+                print("Лучшие вопросы: нет вопросов с правильными ответами")
+        else:
+            print("Лучшие вопросы: данные отсутствуют")
+        
+        # Итог экзамена
+        pass_rate = len(passed) / len(students) if students else 0
+        print("\nВывод:", "экзамен удался" if pass_rate > 0.85 else "экзамен не удался")
 
 if __name__ == "__main__":
     main()
